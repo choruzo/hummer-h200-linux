@@ -1,0 +1,684 @@
+Quiero que hagas ingeniería inversa del software/controlador de la pantalla LCD del disipador:
+
+NOX Hummer H-200 LCD
+
+El objetivo final es sustituir en Ubuntu/Linux el software oficial de Windows "Hummer Digital" por una implementación nativa Linux.
+
+IMPORTANTE:
+- Estás trabajando directamente en la máquina Ubuntu donde está instalado físicamente el NOX Hummer H-200 LCD.
+- El LCD está conectado al sistema mediante el mecanismo físico previsto por NOX, probablemente USB interno, pero NO debes asumir el protocolo ni la interfaz: debes descubrirlos.
+- Disponemos del instalador oficial de Windows de Hummer Digital.
+- Busca en el directorio actual, ~/Descargas, ~/Downloads y ubicaciones razonables archivos llamados de forma similar a:
+  hummer_h-200_lcd-3cq2vmvz21.zip
+  Hummer_DigitalSetup_H-200 LCD.exe
+- Si no encuentras el instalador, indícalo claramente y continúa todo lo posible con el hardware conectado.
+- Ubuntu es el sistema operativo objetivo.
+- NO quiero depender de Windows ni Wine en la solución final.
+- Preferencia inicial para la implementación: Python 3.
+- Para acceso al dispositivo, preferir en este orden:
+  1. hidapi / hidraw si es USB HID
+  2. pyusb/libusb si es USB vendor-specific
+  3. otra interfaz userspace si fuese necesaria
+- NO desarrollar un módulo de kernel salvo que sea absolutamente imprescindible.
+
+OBJETIVO FUNCIONAL
+
+Crear un proyecto Linux, por ejemplo:
+
+hummer-h200-linux/
+
+que permita controlar la pantalla LCD del NOX Hummer H-200 desde Ubuntu.
+
+Inicialmente quiero poder mostrar como mínimo:
+
+- temperatura CPU
+- temperatura GPU
+- RPM si el hardware/pantalla lo admite
+- Celsius/Fahrenheit si el protocolo lo permite
+
+Después quiero dejar preparada la arquitectura para añadir:
+
+- AMD Radeon AI PRO R9700:
+  - temperatura
+  - utilización
+  - VRAM utilizada
+- Intel Arc Pro B50:
+  - temperatura
+  - utilización
+  - VRAM utilizada
+- métricas externas como tokens/s de llama.cpp
+
+Pero NO inventes capacidades de la pantalla. Primero determina qué puede mostrar realmente el firmware del H-200.
+
+==================================================
+FASE 0 — SEGURIDAD Y REGLAS
+==================================================
+
+Antes de realizar ninguna escritura USB:
+
+1. Identifica inequívocamente el dispositivo.
+2. Obtén VID, PID, interfaces, endpoints y descriptores.
+3. Comprueba si es HID, CDC, vendor-specific, etc.
+4. No envíes paquetes arbitrarios.
+5. No escribas en firmware.
+6. No intentes actualizaciones de firmware.
+7. No uses fuzzing USB.
+8. No escribas datos aleatorios a endpoints.
+9. No hagas pruebas que puedan modificar permanentemente el dispositivo.
+
+La primera fase debe ser completamente pasiva.
+
+Si necesitas sudo para alguna inspección, puedes utilizarlo, pero explica antes qué comando se va a ejecutar y por qué.
+
+==================================================
+FASE 1 — IDENTIFICACIÓN DEL HARDWARE
+==================================================
+
+Inspecciona el sistema.
+
+Ejecuta y analiza, entre otros:
+
+lsusb
+lsusb -t
+lsusb -v
+
+Busca también:
+
+ls -l /dev/hidraw*
+ls -l /dev/ttyACM*
+ls -l /dev/ttyUSB*
+
+Para cada hidraw relevante:
+
+udevadm info --attribute-walk --name=/dev/hidrawX
+
+Inspecciona:
+
+/sys/bus/usb/devices/
+/sys/class/hidraw/
+/sys/class/hwmon/
+
+Relaciona cada dispositivo con su VID/PID.
+
+Quiero que determines inequívocamente cuál corresponde al H-200 LCD.
+
+Guarda la información importante en:
+
+docs/hardware-identification.md
+
+Incluye:
+
+- VID
+- PID
+- fabricante
+- product string
+- serial si existe
+- USB class
+- interfaces
+- endpoints
+- HID report descriptor si existe
+- tamaño máximo de report
+- driver Linux asociado
+- nodo /dev correspondiente
+
+Si es HID, extrae y analiza el HID Report Descriptor.
+
+Puedes utilizar herramientas como:
+
+hid-recorder
+usbhid-dump
+hid-tools
+libinput record
+
+cuando tengan sentido.
+
+No instales decenas de paquetes innecesariamente.
+
+==================================================
+FASE 2 — EXTRAER EL SOFTWARE OFICIAL
+==================================================
+
+Localiza el instalador oficial.
+
+Si es ZIP:
+
+unzip -l archivo.zip
+
+y extráelo en un directorio de trabajo.
+
+Si el EXE es Inno Setup, utiliza preferentemente:
+
+innoextract
+
+Instálalo si es necesario.
+
+Ejemplo:
+
+sudo apt install innoextract
+
+Extrae el contenido a:
+
+research/windows-app/
+
+NO ejecutes inicialmente el instalador.
+
+Documenta:
+
+- estructura del paquete
+- ejecutables
+- DLL
+- configuración
+- recursos
+- drivers .sys
+- ficheros .inf
+- JSON/XML/INI
+- imágenes
+- otros componentes
+
+Guarda:
+
+docs/windows-software.md
+
+==================================================
+FASE 3 — ANÁLISIS ESTÁTICO
+==================================================
+
+Analiza el ejecutable real de Hummer Digital.
+
+Utiliza herramientas disponibles como:
+
+file
+strings
+objdump
+llvm-objdump
+readelf cuando aplique
+rabin2 / radare2
+rizin
+lief
+pefile
+Ghidra si ya está instalada o realmente aporta valor
+
+No hace falta instalar herramientas enormes si podemos resolverlo de forma más simple.
+
+Busca específicamente imports/referencias a:
+
+hid.dll
+HidD_
+HidP_
+SetupDi
+CreateFile
+ReadFile
+WriteFile
+DeviceIoControl
+WinUSB
+libusb
+serial
+COM
+USB
+VID_
+PID_
+temperature
+CPU
+GPU
+RPM
+Celsius
+Fahrenheit
+
+Busca cadenas:
+
+VID_xxxx
+PID_xxxx
+
+y compáralas con el VID/PID encontrado físicamente en Ubuntu.
+
+Determina qué API usa Hummer Digital para comunicarse con la pantalla:
+
+- Windows HID API
+- WinUSB
+- puerto serie
+- vendor DLL
+- otra
+
+Localiza, si es razonablemente posible:
+
+- función que abre el dispositivo
+- función que escribe datos
+- función que lee datos
+- tamaño del buffer
+- command IDs
+- report IDs
+- estructura de los paquetes
+
+No inventes nada: distingue siempre entre:
+
+CONFIRMADO
+PROBABLE
+HIPÓTESIS
+
+Documenta los hallazgos en:
+
+docs/protocol-analysis.md
+
+==================================================
+FASE 4 — OBSERVACIÓN PASIVA DEL TRÁFICO
+==================================================
+
+Si todavía no conocemos completamente el protocolo, captura tráfico.
+
+En Linux comprueba soporte:
+
+sudo modprobe usbmon
+
+y revisa:
+
+/sys/kernel/debug/usb/usbmon/
+
+Puedes utilizar:
+
+Wireshark
+tshark
+usbmon
+
+Si es posible ejecutar Hummer Digital bajo Wine y realmente accede al hardware, captura el tráfico generado.
+
+Si Wine NO puede acceder correctamente al dispositivo, NO pierdas horas intentando forzarlo.
+
+En ese caso documenta que necesitamos una captura Windows mediante:
+
+USBPcap + Wireshark
+
+o una VM Windows con USB passthrough si resulta viable.
+
+Si utilizas una VM, asegúrate de que no haya simultáneamente dos sistemas intentando controlar el dispositivo.
+
+Quiero poder correlacionar cambios simples en Hummer Digital con paquetes concretos.
+
+Por ejemplo:
+
+CPU -> GPU
+GPU -> RPM
+Celsius -> Fahrenheit
+cambio de intervalo
+valor mostrado
+
+Crea, si es posible:
+
+captures/
+
+y guarda capturas relevantes con nombres descriptivos.
+
+Documenta las correlaciones.
+
+==================================================
+FASE 5 — DESCUBRIR EL PROTOCOLO
+==================================================
+
+El objetivo principal de la ingeniería inversa es obtener una especificación del protocolo.
+
+Crea:
+
+docs/protocol.md
+
+Con una especificación similar a:
+
+USB:
+VID:
+PID:
+Interface:
+Endpoint OUT:
+Endpoint IN:
+Report size:
+
+Command / Report format:
+
+byte 0:
+byte 1:
+byte 2:
+...
+
+Commands:
+
+0x01 = ...
+0x02 = ...
+
+Ejemplos:
+
+CPU temperature 45 C
+<bytes>
+
+GPU temperature 62 C
+<bytes>
+
+RPM 1250
+<bytes>
+
+Pero solamente incluye valores que hayas demostrado.
+
+Para cada campo indica:
+
+- offset
+- longitud
+- endianess
+- escala
+- unidad
+- checksum si existe
+- report ID si existe
+- significado
+
+Si existe checksum, deduce el algoritmo.
+
+Si algún byte sigue siendo desconocido, márcalo como UNKNOWN.
+
+==================================================
+FASE 6 — PROTOTIPO LINUX
+==================================================
+
+Cuando el protocolo esté suficientemente entendido, crea primero una herramienta manual segura.
+
+Por ejemplo:
+
+tools/h200ctl.py
+
+Interfaz deseada:
+
+./h200ctl.py info
+
+./h200ctl.py set-temp 45
+
+./h200ctl.py set-rpm 1200
+
+./h200ctl.py raw-info
+
+NO implementes "raw-write" arbitrario por defecto.
+
+El programa debe comprobar:
+
+VID/PID
+
+antes de enviar nada.
+
+Nunca debe escribir a otro dispositivo USB por accidente.
+
+Si es HID:
+
+preferir hidapi.
+
+Si es USB genérico:
+
+preferir pyusb/libusb.
+
+==================================================
+FASE 7 — DAEMON LINUX
+==================================================
+
+Cuando el prototipo funcione, crea:
+
+src/hummer_h200/
+
+y un daemon:
+
+hummer-h200d
+
+Arquitectura aproximada:
+
+Sensors
+  |
+  +-- CPU sensor
+  +-- AMD GPU sensor
+  +-- Intel GPU sensor
+  |
+Display state
+  |
+Protocol encoder
+  |
+USB transport
+  |
+H-200 LCD
+
+No mezcles lectura de sensores con el protocolo USB.
+
+Quiero módulos separados.
+
+==================================================
+FASE 8 — SENSORES LINUX
+==================================================
+
+CPU:
+
+prioriza:
+
+/sys/class/hwmon
+
+y sensores del Ryzen 9 9900X.
+
+Evita parsear continuamente comandos externos si existe información en sysfs.
+
+AMD Radeon AI PRO R9700:
+
+investiga primero:
+
+/sys/class/drm/
+sysfs hwmon
+ROCm
+
+Puedes utilizar rocm-smi/amd-smi como fallback.
+
+Intel Arc Pro B50:
+
+investiga:
+
+/sys/class/drm/
+hwmon
+driver xe
+
+No dependas obligatoriamente de herramientas propietarias si sysfs proporciona los datos.
+
+==================================================
+FASE 9 — CONFIGURACIÓN
+==================================================
+
+Crea un fichero como:
+
+/etc/hummer-h200/config.toml
+
+Ejemplo conceptual:
+
+mode = "rotate"
+interval = 3
+
+[[screens]]
+metric = "cpu.temperature"
+duration = 5
+
+[[screens]]
+metric = "amd_gpu.temperature"
+duration = 5
+
+[[screens]]
+metric = "amd_gpu.utilization"
+duration = 5
+
+Solo implementa rotación si el firmware LCD permite que nosotros enviemos valores arbitrarios.
+
+==================================================
+FASE 10 — UDEV
+==================================================
+
+Crea una regla udev específica para el VID/PID REAL descubierto.
+
+Por ejemplo conceptual:
+
+/etc/udev/rules.d/70-hummer-h200.rules
+
+No copies literalmente VID/PID ficticios.
+
+Evita ejecutar el daemon como root si no es necesario.
+
+Crea grupo/permisos apropiados para permitir acceso seguro al dispositivo.
+
+==================================================
+FASE 11 — SYSTEMD
+==================================================
+
+Crea:
+
+packaging/hummer-h200.service
+
+Objetivo:
+
+sudo systemctl enable --now hummer-h200
+
+El servicio debe:
+
+- arrancar automáticamente
+- reiniciarse si falla
+- no ejecutar como root si no es imprescindible
+- escribir logs en journald
+- gestionar desconexión/reconexión USB
+- esperar si la pantalla todavía no está disponible durante el boot
+
+Ejemplo de diagnóstico esperado:
+
+journalctl -u hummer-h200
+
+==================================================
+FASE 12 — PRUEBAS
+==================================================
+
+Crea tests para:
+
+- detección VID/PID
+- encoder del protocolo
+- endianess
+- checksum si existe
+- límites de temperatura
+- límites de RPM
+- dispositivo desconectado
+- reconexión
+- sensor no disponible
+- múltiples GPU presentes
+
+Las pruebas unitarias NO deben requerir físicamente el LCD salvo tests claramente marcados como integration.
+
+==================================================
+FASE 13 — DOCUMENTACIÓN
+==================================================
+
+Quiero como mínimo:
+
+README.md
+docs/hardware-identification.md
+docs/windows-software.md
+docs/protocol-analysis.md
+docs/protocol.md
+docs/linux-port.md
+
+README debe incluir:
+
+- qué es el proyecto
+- hardware soportado
+- VID/PID
+- instalación
+- permisos udev
+- configuración
+- systemd
+- troubleshooting
+- estado de funciones conocidas
+
+Añade también:
+
+REVERSE_ENGINEERING.md
+
+donde quede explicado exactamente cómo se descubrió el protocolo para poder reproducir la investigación.
+
+==================================================
+FASE 14 — NOX HUMMER DIGITAL VS IMPLEMENTACIÓN LINUX
+==================================================
+
+Cuando entiendas el software oficial, crea una tabla:
+
+Función             Hummer Digital      Linux
+CPU temperature     sí/no               sí/no
+GPU temperature     sí/no               sí/no
+RPM                 sí/no               sí/no
+Celsius/Fahrenheit  sí/no               sí/no
+otras...
+
+No asumas capacidades.
+
+==================================================
+FASE 15 — RESULTADO FINAL
+==================================================
+
+Quiero terminar pudiendo hacer:
+
+sudo apt/install dependencies...
+sudo ./install.sh
+
+systemctl status hummer-h200
+
+y que el LCD funcione automáticamente al iniciar Ubuntu.
+
+El proyecto debe ser pequeño, mantenible y entendible.
+
+No quiero:
+
+- Electron
+- GUI pesada
+- contenedores
+- Wine como dependencia final
+- kernel modules salvo necesidad absoluta
+- polling agresivo
+- código generado innecesariamente complejo
+
+Python + systemd + udev + hidapi/libusb sería la solución ideal si el dispositivo lo permite.
+
+==================================================
+FORMA DE TRABAJO
+==================================================
+
+Trabaja por fases.
+
+ANTES de modificar el sistema de manera importante:
+
+1. inspecciona
+2. explica el hallazgo
+3. realiza el cambio mínimo necesario
+
+No borres nada del sistema.
+
+No modifiques BIOS.
+
+No actualices firmware.
+
+No desactives dispositivos USB.
+
+No hagas pruebas destructivas.
+
+Mantén un diario:
+
+research/NOTES.md
+
+Cada descubrimiento relevante debe indicar:
+
+- comando/prueba realizada
+- resultado
+- interpretación
+- grado de certeza
+- siguiente experimento
+
+Si descubres el protocolo antes de completar todas las fases, no sigas haciendo ingeniería inversa innecesaria: pasa a implementar y validar la solución Linux.
+
+==================================================
+PRIMER PASO
+==================================================
+
+Empieza AHORA únicamente por:
+
+1. identificar el H-200 mediante lsusb/sysfs/hidraw;
+2. localizar el instalador Hummer Digital;
+3. desempaquetarlo;
+4. inspeccionar sus ejecutables, DLL e imports;
+5. comparar el VID/PID del software con el hardware físico.
+
+Después dame un resumen de los hallazgos antes de realizar escrituras al dispositivo USB.
