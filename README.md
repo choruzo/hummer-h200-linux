@@ -136,7 +136,7 @@ To hand it to someone else, build the release tarball — 12 KB, just the daemon
 the packaging files and the docs, with none of the research tree:
 
 ```bash
-./packaging/make-release.sh        # -> dist/h200d-0.1.0.tar.gz
+./packaging/make-release.sh        # -> dist/h200d-<version>.tar.gz
 ```
 
 They extract it and run `sudo ./install.sh`. The build unpacks its own tarball
