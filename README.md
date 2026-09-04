@@ -34,11 +34,11 @@ Native Linux daemon and tools to control the LCD display of the NOX Hummer H-200
 | 4 | Traffic capture | ✅ Complete (API-level, see `research/METHOD.md`) |
 | 5 | Protocol reverse engineering | ✅ Complete (see `research/PROTOCOL.md`) |
 | 6 | Linux prototype (`h200d.py`) | ✅ Working against the real device |
-| 7 | Systemd daemon | ⬜ Pending |
+| 7 | Systemd daemon | ✅ Complete (`packaging/h200d.service`) |
 | 8 | Linux sensor integration | ✅ Complete (hwmon + /proc/stat) |
 | 9 | Configuration system | ⬜ Pending |
 | 10 | udev rules | ✅ Complete |
-| 11 | Systemd service | ⬜ Pending |
+| 11 | Systemd service | ✅ Complete (`./install.sh`) |
 | 12 | Tests | ⬜ Pending |
 | 13 | Documentation | 🟡 In progress |
 
@@ -98,10 +98,11 @@ Native Linux daemon and tools to control the LCD display of the NOX Hummer H-200
   its monitoring path (most likely the firmware-upgrade channel)
 - Alarm thresholds (`alarm` byte of report `0x20`) were never seen to trigger;
   the bit layout comes from static analysis only
-- No systemd packaging yet
+- Hot-replug is handled by reconnecting; a device that answers but stops
+  ACKing is only detected by the 2 s read timeout
 
 ### System Configuration
-- **udev rule**: `/tmp/70-hummer-h200-udev.rules` (MODE="0666" on hidraw)
+- **udev rule**: `packaging/70-hummer-h200.rules` (hidraw node into the `h200` group + `uaccess`)
 - **sudoers rule**: `/etc/sudoers.d/99-javi-nopasswd` (python3 passwordless)
 - **Power control**: USB autosuspend disabled for `2E3C:0A12`
 
@@ -120,7 +121,21 @@ Options: `--metrics cpu-temp,cpu-usage,gpu-temp,gpu-usage,fan`, `--fahrenheit`,
 `--interval`, `--rotate`. The udev rule below makes the hidraw node writable
 without root.
 
-Packaged installation (systemd unit) is still pending.
+It waits for the display if it is not plugged in yet and reconnects after an
+unplug (including a new `hidraw` node number). `--retry 0` restores the old
+fail-fast behaviour.
+
+To install it as a service:
+
+```bash
+sudo ./install.sh          # daemon + udev rule + systemd unit, then enables it
+sudo ./install.sh --uninstall
+```
+
+`install.sh` creates a system user/group `h200`, installs the udev rule that
+puts the hidraw node in that group, and enables `h200d.service`. To keep driving
+the display by hand, `sudo systemctl stop h200d` and either add yourself to the
+`h200` group or rely on the rule's `uaccess` tag at your seat.
 
 ## Project Structure
 
@@ -138,7 +153,10 @@ hummer-h200-linux/
 │   ├── qmp.py             # QEMU monitor helper (screenshots, mouse, keys)
 │   ├── vnc.py             # minimal RFB client
 │   └── windows-proxy/     # hidapi logging proxy + fake HWiNFO32 (mingw32)
-├── packaging/             # Systemd, udev, packaging (pending)
+├── install.sh             # installs the daemon, udev rule and systemd unit
+├── packaging/
+│   ├── 70-hummer-h200.rules
+│   └── h200d.service
 └── README.md
 ```
 

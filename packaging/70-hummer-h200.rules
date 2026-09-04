@@ -1,0 +1,17 @@
+# NOX Hummer H-200 LCD (2E3C:0A12)
+#
+# The daemon talks to the display through its hidraw node. Without this rule the
+# node is root-only and h200d has to run as root.
+#
+# TAG+="uaccess" hands the device to whoever is logged in at the seat, which is
+# what you want for running h200d by hand. The service unit runs unprivileged,
+# so it needs the group instead: everything in GROUP is readable/writable by
+# members of "h200". Change GROUP if you prefer an existing group such as
+# "plugdev", and keep the two in sync with User=/Group= in h200d.service.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="2e3c", ATTRS{idProduct}=="0a12", \
+    MODE="0660", GROUP="h200", TAG+="uaccess"
+
+# Only needed to hand the raw USB device to QEMU for the Windows capture rig
+# (see research/METHOD.md). Harmless otherwise; drop it if you never capture.
+SUBSYSTEM=="usb", ATTR{idVendor}=="2e3c", ATTR{idProduct}=="0a12", \
+    MODE="0660", GROUP="h200"

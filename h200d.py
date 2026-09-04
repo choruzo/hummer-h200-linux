@@ -14,6 +14,7 @@ import argparse
 import glob
 import os
 import re
+import select
 import struct
 import sys
 import time
@@ -57,12 +58,18 @@ def find_hidraw():
 
 
 class H200:
+    #: seconds to wait for the device's reply before giving up on the exchange
+    READ_TIMEOUT = 2.0
+
     def __init__(self, path):
         self.fd = os.open(path, os.O_RDWR)
         self.path = path
 
     def close(self):
-        os.close(self.fd)
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
 
     def _exchange(self, report_id, payload, expect):
         """Write a 65-byte report and read the device's reply."""
@@ -70,6 +77,10 @@ class H200:
         buf[0] = report_id
         buf[1:1 + len(payload)] = payload
         os.write(self.fd, bytes(buf))
+        # A wedged or half-unplugged device would block os.read() forever.
+        if not select.select([self.fd], [], [], self.READ_TIMEOUT)[0]:
+            raise IOError("timed out waiting for a reply to report 0x%02X"
+                          % report_id)
         reply = os.read(self.fd, 64)
         if not reply or reply[0] != expect:
             raise IOError("unexpected reply %s to report 0x%02X"
@@ -231,6 +242,57 @@ METRICS = {
 }
 
 
+def log(msg):
+    print("h200: " + msg, flush=True)
+
+
+def open_device(explicit, retry_delay):
+    """Block until the display is reachable; returns an open H200."""
+    warned = False
+    while True:
+        path = explicit or find_hidraw()
+        if path:
+            dev = None
+            try:
+                dev = H200(path)
+                log("%s, firmware %s" % (path, dev.handshake()))
+                return dev
+            except OSError as e:
+                if dev is not None:
+                    dev.close()
+                if not warned:
+                    log("cannot talk to %s (%s), retrying" % (path, e))
+                    warned = True
+        elif not warned:
+            log("waiting for a %04x:%04x device" % (VID, PID))
+            warned = True
+        time.sleep(retry_delay)
+
+
+def run(dev, sensors, cycle, unit, args):
+    """Push frames until the device goes away; raises OSError if it does."""
+    index, next_rotate = 0, time.monotonic() + args.rotate
+    while True:
+        s = sensors.read()
+        ct, gt = s["cpu_temp"], s["gpu_temp"]
+        if unit == UNIT_FAHRENHEIT:
+            ct, gt = ct * 9 / 5 + 32, gt * 9 / 5 + 32
+        dev.send(cycle[index], unit, ct, s["cpu_usage"], gt,
+                 s["gpu_usage"], s["fan_rpm"])
+        if args.verbose or args.once:
+            print("metric=0x%02X cpu=%.0f%s cpu%%=%.0f gpu=%.0f%s gpu%%=%d "
+                  "fan=%d" % (cycle[index], ct, "F" if unit else "C",
+                              s["cpu_usage"], gt, "F" if unit else "C",
+                              s["gpu_usage"], s["fan_rpm"]), flush=True)
+        if args.once:
+            return
+        now = time.monotonic()
+        if now >= next_rotate:
+            index = (index + 1) % len(cycle)
+            next_rotate = now + args.rotate
+        time.sleep(args.interval)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -248,22 +310,20 @@ def main():
                     help="show detected device and sensors, then exit")
     ap.add_argument("--once", action="store_true",
                     help="send a single frame and exit")
+    ap.add_argument("--retry", type=float, default=5.0,
+                    help="seconds between reconnect attempts (default 5, "
+                         "0 disables waiting and reconnecting)")
     ap.add_argument("--verbose", "-v", action="store_true")
     args = ap.parse_args()
 
     sensors = Sensors()
-    path = args.device or find_hidraw()
 
     if args.list:
-        print("device: %s" % (path or "NOT FOUND"))
+        print("device: %s" % (args.device or find_hidraw() or "NOT FOUND"))
         for name, src in sensors.describe():
             print("  %-10s %s" % (name, src or "(none)"))
         print("  readings:", sensors.read())
         return 0
-
-    if not path:
-        print("h200: no %04x:%04x hidraw node found" % (VID, PID), file=sys.stderr)
-        return 1
 
     try:
         cycle = [METRICS[m.strip()] for m in args.metrics.split(",") if m.strip()]
@@ -275,33 +335,43 @@ def main():
         return 2
 
     unit = UNIT_FAHRENHEIT if args.fahrenheit else UNIT_CELSIUS
-    dev = H200(path)
+
+    if args.retry <= 0:
+        path = args.device or find_hidraw()
+        if not path:
+            print("h200: no %04x:%04x hidraw node found" % (VID, PID),
+                  file=sys.stderr)
+            return 1
+        dev = None
+        try:
+            dev = H200(path)
+            log("%s, firmware %s" % (path, dev.handshake()))
+            run(dev, sensors, cycle, unit, args)
+        except KeyboardInterrupt:
+            pass
+        except OSError as e:
+            print("h200: %s: %s" % (path, e), file=sys.stderr)
+            return 1
+        finally:
+            if dev is not None:
+                dev.close()
+        return 0
+
+    # Default: survive an unplug, a replug under a different hidraw node, and
+    # a display that is simply not there yet at boot.
     try:
-        print("h200: %s, firmware %s" % (path, dev.handshake()))
-        index, next_rotate = 0, time.monotonic() + args.rotate
         while True:
-            s = sensors.read()
-            ct, gt = s["cpu_temp"], s["gpu_temp"]
-            if unit == UNIT_FAHRENHEIT:
-                ct, gt = ct * 9 / 5 + 32, gt * 9 / 5 + 32
-            dev.send(cycle[index], unit, ct, s["cpu_usage"], gt,
-                     s["gpu_usage"], s["fan_rpm"])
-            if args.verbose or args.once:
-                print("metric=0x%02X cpu=%.0f%s cpu%%=%.0f gpu=%.0f%s gpu%%=%d "
-                      "fan=%d" % (cycle[index], ct, "F" if unit else "C",
-                                  s["cpu_usage"], gt, "F" if unit else "C",
-                                  s["gpu_usage"], s["fan_rpm"]))
-            if args.once:
-                return 0
-            now = time.monotonic()
-            if now >= next_rotate:
-                index = (index + 1) % len(cycle)
-                next_rotate = now + args.rotate
-            time.sleep(args.interval)
+            dev = open_device(args.device, args.retry)
+            try:
+                run(dev, sensors, cycle, unit, args)
+                return 0                       # only reached with --once
+            except OSError as e:
+                log("lost the display (%s), reconnecting" % e)
+            finally:
+                dev.close()
+            time.sleep(args.retry)
     except KeyboardInterrupt:
         return 0
-    finally:
-        dev.close()
 
 
 if __name__ == "__main__":
