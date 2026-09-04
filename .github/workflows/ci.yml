@@ -48,6 +48,9 @@ jobs:
           systemd-analyze verify packaging/h200d.service
       - name: udev rule is valid
         run: |
+          # GROUP="h200" only resolves once the group exists; install.sh
+          # creates it before dropping the rule in, so do the same here.
+          getent group h200 >/dev/null || sudo groupadd --system h200
           if udevadm verify --help >/dev/null 2>&1; then
             udevadm verify packaging/70-hummer-h200.rules
           else
