@@ -375,4 +375,13 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        # `h200d --list | head` closes our stdout; die quietly like any other
+        # well-behaved CLI instead of dumping a traceback.
+        try:
+            sys.stdout.close()
+        except BrokenPipeError:
+            pass
+        os._exit(0)
