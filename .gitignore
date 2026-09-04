@@ -10,3 +10,8 @@ __pycache__/
 *.pyc
 vm_passwd.txt
 dist/
+
+# Vendor binaries: extracted from the Windows installer, not ours to
+# redistribute. Kept locally for disassembly; see research/windows-app/README.md.
+research/windows-app/*
+!research/windows-app/README.md

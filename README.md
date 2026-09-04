@@ -154,7 +154,7 @@ the display by hand, `sudo systemctl stop h200d` and either add yourself to the
 hummer-h200-linux/
 ├── docs/                  # Project documentation
 ├── research/
-│   ├── windows-app/       # Extracted Windows app binaries
+│   ├── windows-app/       # Vendor binaries: untracked, see its README.md
 │   └── NOTES.md           # Research diary
 │   ├── PROTOCOL.md        # the decoded HID protocol
 │   └── METHOD.md          # how it was captured (Windows instrumentation rig)

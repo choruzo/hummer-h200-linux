@@ -20,7 +20,8 @@ Need to execute on Ubuntu:
 
 ### Extracted from Inno Setup installer
 - **Installer**: `Hummer_DigitalSetup_H-200 LCD.exe` (Inno Setup 6.1.0 Unicode)
-- **Output**: `research/windows-app/`
+- **Output**: `research/windows-app/` (untracked — vendor binaries are not
+  redistributed here; see `research/windows-app/README.md`)
 
 ### Package structure
 ```

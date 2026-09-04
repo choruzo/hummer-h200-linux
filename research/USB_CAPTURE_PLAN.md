@@ -197,8 +197,9 @@ After `hid_write(dev, buf, 0x40)`: `hid_read(dev, buf, 0x40)` and checks respons
 | `research/NOTES.md` | Phase 0–3 notes, app strings |
 | `start-windows-vm.sh` | QEMU startup (usb-host bus 1 port 11, VNC :1) |
 | `captures/*.pcapng` | captures; `frames.tsv` = extracted HID reports |
-| `research/windows-app/Hummer_Digital.exe` | app binary |
-| `research/windows-app/hidapi.dll` | app's hidapi (pre-0.9) |
+| `research/windows-app/README.md` | how to obtain the vendor binaries (untracked) |
+| `research/windows-app/Hummer_Digital.exe` | app binary (untracked) |
+| `research/windows-app/hidapi.dll` | app's hidapi (pre-0.9, untracked) |
 | `/etc/udev/rules.d/70-hummer-h200-udev.rules` | host udev rule (fix) |
 | `/tmp/opencode/hummer_disasm.txt` | objdump of app (45,992 lines) |
 | `/tmp/opencode/hidapi_disasm.txt` | objdump of hidapi.dll |
