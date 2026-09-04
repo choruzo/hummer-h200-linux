@@ -4,8 +4,10 @@
 # none of that belongs in a release, so this picks the files by hand.
 set -euo pipefail
 
-VERSION=${VERSION:-0.1.0}
 SRC=$(cd "$(dirname "$0")/.." && pwd)
+# Single source of truth: h200d.py. A tarball named differently from what
+# `h200d --version` reports is exactly the kind of thing nobody notices.
+VERSION=${VERSION:-$(python3 -c "import re,io; print(re.search(r'__version__ = \"([^\"]+)\"', io.open('$SRC/h200d.py').read()).group(1))")}
 NAME="h200d-$VERSION"
 OUT="$SRC/dist"
 STAGE=$(mktemp -d)

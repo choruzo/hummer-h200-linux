@@ -19,6 +19,8 @@ import struct
 import sys
 import time
 
+__version__ = "0.1.1"
+
 VID, PID = 0x2E3C, 0x0A12
 
 REPORT_HELLO = 0x10
@@ -314,6 +316,8 @@ def main():
                     help="seconds between reconnect attempts (default 5, "
                          "0 disables waiting and reconnecting)")
     ap.add_argument("--verbose", "-v", action="store_true")
+    ap.add_argument("--version", action="version",
+                    version="h200d " + __version__)
     args = ap.parse_args()
 
     sensors = Sensors()
