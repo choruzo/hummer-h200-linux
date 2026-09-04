@@ -100,6 +100,14 @@ class Scripts(unittest.TestCase):
                 subprocess.run(["bash", "-n", os.path.join(ROOT, script)],
                                check=True)
 
+    @unittest.skipIf(not shutil.which("shellcheck"), "shellcheck not installed")
+    def test_shellcheck_is_clean(self):
+        # CI runs this too; having it here means a broken script fails locally
+        # instead of six minutes into a release build.
+        subprocess.run(["shellcheck", os.path.join(ROOT, "install.sh"),
+                        os.path.join(ROOT, "packaging/make-release.sh")],
+                       check=True)
+
     def test_shipped_files_exist(self):
         for path in ("h200d.py", "install.sh",
                      "packaging/70-hummer-h200.rules",

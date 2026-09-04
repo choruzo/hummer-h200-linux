@@ -86,7 +86,9 @@ tar -xzf "$OUT/$NAME.tar.gz" -C "$CHECK"
            packaging/h200d.service docs/PROTOCOL.md docs/METHOD.md README.md; do
       [ -f "$f" ] || { echo "missing from tarball: $f" >&2; exit 1; }
   done
-  [ -x install.sh ] && [ -x h200d.py ] || { echo "lost the exec bits" >&2; exit 1; }
+  if [ ! -x install.sh ] || [ ! -x h200d.py ]; then
+      echo "lost the exec bits" >&2; exit 1
+  fi
 
   # Run the real installer against a staging root: catches a broken install
   # line or a renamed file, without needing root or touching the system.
