@@ -9,3 +9,4 @@ root_passwd.txt
 __pycache__/
 *.pyc
 vm_passwd.txt
+dist/

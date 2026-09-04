@@ -132,6 +132,17 @@ sudo ./install.sh          # daemon + udev rule + systemd unit, then enables it
 sudo ./install.sh --uninstall
 ```
 
+To hand it to someone else, build the release tarball — 12 KB, just the daemon,
+the packaging files and the docs, with none of the research tree:
+
+```bash
+./packaging/make-release.sh        # -> dist/h200d-0.1.0.tar.gz
+```
+
+They extract it and run `sudo ./install.sh`. The build unpacks its own tarball
+and runs the installer against a staging root (`DESTDIR=`) before declaring
+success, so a release that cannot install fails the build.
+
 `install.sh` creates a system user/group `h200`, installs the udev rule that
 puts the hidraw node in that group, and enables `h200d.service`. To keep driving
 the display by hand, `sudo systemctl stop h200d` and either add yourself to the
@@ -156,7 +167,8 @@ hummer-h200-linux/
 ├── install.sh             # installs the daemon, udev rule and systemd unit
 ├── packaging/
 │   ├── 70-hummer-h200.rules
-│   └── h200d.service
+│   ├── h200d.service
+│   └── make-release.sh    # builds + smoke-tests dist/h200d-<version>.tar.gz
 └── README.md
 ```
 
