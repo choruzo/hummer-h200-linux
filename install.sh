@@ -81,7 +81,10 @@ fi
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=hidraw --subsystem-match=usb
 systemctl daemon-reload
-systemctl enable --now h200d.service
+systemctl enable h200d.service
+# restart, not "enable --now": on an upgrade the service is already running and
+# --now would leave the old code in memory with the new files on disk.
+systemctl restart h200d.service
 
 echo
 echo "Installed. Check it with:"
