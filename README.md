@@ -12,7 +12,9 @@ Native Linux daemon and tools to control the LCD display of the NOX Hummer H-200
 | **OS Support** | Windows (official) |
 | **Linux Support** | In progress (this project) |
 
-> **VID/PID**: To be discovered. The device must be connected to an Ubuntu system and identified via `lsusb`.
+> **VID/PID**: `2E3C:0A12` (identified as "KIMTECH Tuner" by system)
+> **Device Node**: `/dev/hidraw2`
+> **Connection**: Internal USB 2.0 header on ASRock X870 Taichi Creator
 
 ## What This Project Does
 
@@ -25,20 +27,20 @@ Native Linux daemon and tools to control the LCD display of the NOX Hummer H-200
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 0 | Hardware identification | Pending |
-| 1 | USB device enumeration | Pending |
-| 2 | Windows software extraction | Complete |
-| 3 | Static binary analysis | Complete |
-| 4 | Passive traffic capture | Pending |
-| 5 | Protocol reverse engineering | Pending |
-| 6 | Linux prototype (`h200ctl`) | Pending |
-| 7 | Systemd daemon | Pending |
-| 8 | Linux sensor integration | Pending |
-| 9 | Configuration system | Pending |
-| 10 | udev rules | Pending |
-| 11 | Systemd service | Pending |
-| 12 | Tests | Pending |
-| 13 | Documentation | In progress |
+| 0 | Hardware identification | ✅ Complete |
+| 1 | USB device enumeration | ✅ Complete |
+| 2 | Windows software extraction | ✅ Complete |
+| 3 | Static binary analysis | ✅ Complete |
+| 4 | Traffic capture | ✅ Complete (API-level, see `research/METHOD.md`) |
+| 5 | Protocol reverse engineering | ✅ Complete (see `research/PROTOCOL.md`) |
+| 6 | Linux prototype (`h200d.py`) | ✅ Working against the real device |
+| 7 | Systemd daemon | ⬜ Pending |
+| 8 | Linux sensor integration | ✅ Complete (hwmon + /proc/stat) |
+| 9 | Configuration system | ⬜ Pending |
+| 10 | udev rules | ✅ Complete |
+| 11 | Systemd service | ⬜ Pending |
+| 12 | Tests | ⬜ Pending |
+| 13 | Documentation | 🟡 In progress |
 
 ## What We Know (From Static Analysis)
 
@@ -65,16 +67,60 @@ Native Linux daemon and tools to control the LCD display of the NOX Hummer H-200
 - System tray icon
 - Device list table with auto-refresh
 
-## Installation
+### Current Protocol Findings (Live Device Testing)
 
-Not yet available. This project is in the research/reverse engineering phase.
+#### HID Report Structure
+- **Report size**: 64 bytes (1 byte Report ID + 63 bytes data)
+- **Input reports**: 63 bytes (1 byte Report ID + 62 bytes data)
+- **Usage Page**: Vendor-defined (`0xFF00`)
+- **Status byte**: `0x01` = Success, other values = Error codes
 
-When complete, installation will be:
+#### Verified Working Commands
+
+| Report ID | Command | Description | Response |
+|-----------|---------|-------------|----------|
+| `0x10` | `0x01` | Query device info | ✅ Serial, firmware version |
+| `0x20` | `0x01` | Display on/off | ✅ |
+| `0x20` | `0x02` | Brightness (0-255) | ✅ |
+| `0x20` | `0x10` | Display config query | ✅ |
+
+#### Non-Working Commands (need investigation)
+
+| Report ID | Command | Description |
+|-----------|---------|-------------|
+| `0x10` | `0x02`-`0x60` | Various queries (no response) |
+| `0x20` | `0x03` | Display mode (no response) |
+| `0x20` | `0x20` | Set display content (no visible output) |
+| `0xF0` | `0x00`-`0x09` | Sensor/config commands (no response) |
+
+#### Known Issues
+- Report `0xF0`/`0xF1` still undocumented — the Windows app never uses them on
+  its monitoring path (most likely the firmware-upgrade channel)
+- Alarm thresholds (`alarm` byte of report `0x20`) were never seen to trigger;
+  the bit layout comes from static analysis only
+- No systemd packaging yet
+
+### System Configuration
+- **udev rule**: `/tmp/70-hummer-h200-udev.rules` (MODE="0666" on hidraw)
+- **sudoers rule**: `/etc/sudoers.d/99-javi-nopasswd` (python3 passwordless)
+- **Power control**: USB autosuspend disabled for `2E3C:0A12`
+
+## Usage
+
+The protocol is decoded and `h200d.py` drives the display directly over
+`/dev/hidraw*` with no third-party dependencies:
 
 ```bash
-sudo ./install.sh
-sudo systemctl enable --now hummer-h200
+./h200d.py --list      # show the detected device and the sensors it will use
+./h200d.py --once      # handshake + a single frame
+./h200d.py -v          # run, cycling CPU temp / GPU temp / fan speed
 ```
+
+Options: `--metrics cpu-temp,cpu-usage,gpu-temp,gpu-usage,fan`, `--fahrenheit`,
+`--interval`, `--rotate`. The udev rule below makes the hidraw node writable
+without root.
+
+Packaged installation (systemd unit) is still pending.
 
 ## Project Structure
 
@@ -84,11 +130,14 @@ hummer-h200-linux/
 ├── research/
 │   ├── windows-app/       # Extracted Windows app binaries
 │   └── NOTES.md           # Research diary
-├── captures/              # USB traffic captures (pending)
-├── src/                   # Linux implementation (pending)
-│   └── hummer_h200/       # Python package (pending)
-├── tools/                 # CLI tools (pending)
-│   └── h200ctl.py         # Manual control tool (pending)
+│   ├── PROTOCOL.md        # the decoded HID protocol
+│   └── METHOD.md          # how it was captured (Windows instrumentation rig)
+├── captures/              # USB traffic captures
+├── h200d.py               # Linux daemon: sensors -> display
+├── tools/
+│   ├── qmp.py             # QEMU monitor helper (screenshots, mouse, keys)
+│   ├── vnc.py             # minimal RFB client
+│   └── windows-proxy/     # hidapi logging proxy + fake HWiNFO32 (mingw32)
 ├── packaging/             # Systemd, udev, packaging (pending)
 └── README.md
 ```
@@ -102,7 +151,8 @@ The project follows a phased, safe approach:
 3. **Protocol specification** derived from traffic capture
 4. **Incremental implementation** with tests at each stage
 
-See `research/NOTES.md` for detailed findings.
+See `research/PROTOCOL.md` for the protocol, `research/METHOD.md` for the
+capture method, and `research/NOTES.md` for the research diary.
 
 ## Supported Hardware
 
@@ -124,7 +174,21 @@ See `research/NOTES.md` for detailed findings.
 
 ## Troubleshooting
 
-Not yet applicable — no working implementation exists yet.
+### Device not responding
+- Check if device is connected: `lsusb | grep 2e3c`
+- Verify hidraw permissions: `ls -l /dev/hidraw*`
+- Check udev rules are loaded: `udevadm info --query=property --name=/dev/hidraw2`
+- Verify no USB autosuspend: `cat /sys/bus/usb/devices/1-*/power/control`
+
+### Screen not showing content
+- Known issue: screen turns off after boot (device still connected)
+- Display content protocol not fully reverse-engineered yet
+- USB traffic capture from Windows needed to understand display format
+
+### Commands returning errors
+- Verify correct Report ID and Command bytes
+- Check device is in correct mode (some commands only work when display is on)
+- Some commands may require specific initialization sequence
 
 ## Contributing
 

@@ -1,0 +1,8 @@
+LIBRARY HWiNFO32
+EXPORTS
+hwi_init @127 NONAME
+hwi_name @168 NONAME
+hwi_unk466 @466 NONAME
+hwi_sensor @570 NONAME
+hwi_select @617 NONAME
+hwi_count @781 NONAME

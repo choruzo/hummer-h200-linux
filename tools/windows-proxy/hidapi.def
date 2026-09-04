@@ -1,0 +1,19 @@
+LIBRARY hidapi
+EXPORTS
+hid_init
+hid_exit
+hid_enumerate
+hid_free_enumeration
+hid_open
+hid_open_path
+hid_write
+hid_read
+hid_read_timeout
+hid_set_nonblocking
+hid_close
+hid_error
+hid_send_feature_report
+hid_get_feature_report
+hid_get_manufacturer_string
+hid_get_product_string
+hid_get_serial_number_string

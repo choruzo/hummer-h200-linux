@@ -4,3 +4,8 @@ hummer_h-200_lcd-3cq2vmvz21.zip
 hummer_h-200_series_manual-p8pryj9rqo.pdf
 innoextract-1.9-linux.tar.xz
 root_passwd.txt
+
+# local scratch / secrets
+__pycache__/
+*.pyc
+vm_passwd.txt
