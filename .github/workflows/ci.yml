@@ -1,0 +1,122 @@
+name: ci
+
+# Everything that must hold before a release can be cut. release.yml reuses
+# this exact workflow, so a green tag build means these checks passed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: tests (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Syntax check
+        run: python3 -m py_compile h200d.py
+      - name: Unit and integration tests
+        run: python3 -m unittest discover -s tests -v
+      - name: The daemon must stay dependency-free
+        run: |
+          # Import it with an empty site-packages: any third-party import dies.
+          python3 -S -c "import sys; sys.path.insert(0, '.'); import h200d; print(h200d.__version__)"
+
+  lint:
+    name: shell, unit and udev files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck install.sh packaging/make-release.sh
+      - name: systemd unit is valid
+        run: |
+          # ExecStart must exist for verify not to complain about it.
+          sudo install -Dm755 h200d.py /usr/local/bin/h200d
+          systemd-analyze verify packaging/h200d.service
+      - name: udev rule is valid
+        run: |
+          if udevadm verify --help >/dev/null 2>&1; then
+            udevadm verify packaging/70-hummer-h200.rules
+          else
+            echo "udevadm verify unavailable on this runner, skipping"
+          fi
+
+  package:
+    name: build and smoke-test the tarball
+    runs-on: ubuntu-latest
+    needs: [tests, lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build the release tarball
+        run: packaging/make-release.sh
+      - name: Publish the tarball as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: h200d-tarball
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  install:
+    name: real install on a live systemd
+    runs-on: ubuntu-latest
+    needs: [package]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: h200d-tarball
+          path: dist
+      - name: Install from the tarball as a user would
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/unpack
+          tar -xzf dist/*.tar.gz -C /tmp/unpack
+          cd /tmp/unpack/h200d-*
+          sudo ./install.sh
+      - name: The service must come up and wait for the display
+        run: |
+          set -euxo pipefail
+          systemctl is-enabled h200d.service
+          sleep 3
+          systemctl is-active h200d.service
+          # No H-200 on a CI runner: the daemon must sit and wait, not crash.
+          journalctl -u h200d.service --no-pager | tee /tmp/journal.txt
+          grep -q "waiting for a 2e3c:0a12 device" /tmp/journal.txt
+          getent group h200
+          id h200
+          test -e /etc/udev/rules.d/70-hummer-h200.rules
+      - name: Reinstalling over a running service must restart it
+        run: |
+          set -euxo pipefail
+          cd /tmp/unpack/h200d-*
+          before=$(systemctl show -p MainPID --value h200d.service)
+          sudo ./install.sh
+          after=$(systemctl show -p MainPID --value h200d.service)
+          test "$before" != "$after"
+      - name: Uninstall must leave nothing behind
+        run: |
+          set -euxo pipefail
+          cd /tmp/unpack/h200d-*
+          sudo ./install.sh --uninstall
+          ! systemctl is-active h200d.service
+          test ! -e /usr/local/bin/h200d
+          test ! -e /etc/systemd/system/h200d.service
+          test ! -e /etc/udev/rules.d/70-hummer-h200.rules

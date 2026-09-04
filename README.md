@@ -39,7 +39,7 @@ Native Linux daemon and tools to control the LCD display of the NOX Hummer H-200
 | 9 | Configuration system | ⬜ Pending |
 | 10 | udev rules | ✅ Complete |
 | 11 | Systemd service | ✅ Complete (`./install.sh`) |
-| 12 | Tests | ⬜ Pending |
+| 12 | Tests + CI/CD | ✅ Complete (`tests/`, `.github/workflows/`) |
 | 13 | Documentation | 🟡 In progress |
 
 ## What We Know (From Static Analysis)
@@ -132,6 +132,47 @@ sudo ./install.sh          # daemon + udev rule + systemd unit, then enables it
 sudo ./install.sh --uninstall
 ```
 
+## Tests
+
+No hardware, no root and no third-party modules: the suite fakes `/sys`, `/proc`
+and the display itself (a socketpair that speaks the real HID protocol), so it
+runs anywhere.
+
+```bash
+python3 -m unittest discover -s tests        # ~90 tests, ~3 s
+python3 -m unittest discover -s tests -v     # one line per test
+python3 -m unittest tests.test_protocol      # a single module
+```
+
+What it covers: VID/PID detection (and refusing every other USB device), the
+0x20 frame layout down to the byte offsets, big-endian signed temperatures,
+clamping of absurd temperature/RPM readings, handshake, rejected frames, a
+device that stops answering, unplug mid-frame, reconnection under a new hidraw
+node, sensor discovery on Ryzen/amdgpu/xe/coretemp, multiple GPUs, a machine
+with no sensors, a sensor file that disappears at runtime, CPU usage maths from
+`/proc/stat`, the CLI exit codes, and that the udev rule, systemd unit and
+`install.sh` still agree with the code.
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs on every push and pull request: the test suite
+on Python 3.9/3.11/3.13, ShellCheck, `systemd-analyze verify`, `udevadm verify`,
+the release tarball build, and a **real `sudo ./install.sh` on the runner's live
+systemd** — it checks the service comes up and logs "waiting for a 2e3c:0a12
+device", that reinstalling restarts it, and that `--uninstall` leaves nothing
+behind.
+
+`.github/workflows/release.yml` publishes a release when a `v*` tag is pushed.
+It first refuses to continue unless the tag matches `__version__` in `h200d.py`,
+then runs the whole CI workflow, and only then creates the GitHub release with
+the tarball and `SHA256SUMS`:
+
+```bash
+# bump __version__ in h200d.py first
+git tag -a v0.1.2 -m "Release 0.1.2"
+git push origin main --tags
+```
+
 To hand it to someone else, build the release tarball — 12 KB, just the daemon,
 the packaging files and the docs, with none of the research tree:
 
@@ -160,6 +201,14 @@ hummer-h200-linux/
 │   └── METHOD.md          # how it was captured (Windows instrumentation rig)
 ├── captures/              # USB traffic captures
 ├── h200d.py               # Linux daemon: sensors -> display
+├── tests/                 # stdlib unittest suite; no hardware needed
+│   ├── support.py         # fake /sys + /proc and a fake LCD on a socketpair
+│   ├── test_discovery.py  # VID/PID detection
+│   ├── test_protocol.py   # report layout, endianness, limits, errors
+│   ├── test_sensors.py    # hwmon/drm/proc discovery and readings
+│   ├── test_daemon.py     # full flow: CLI -> sensors -> frames -> reconnect
+│   └── test_packaging.py  # udev rule, systemd unit and install.sh vs the code
+├── .github/workflows/     # ci.yml (tests, lint, install) + release.yml
 ├── tools/
 │   ├── qmp.py             # QEMU monitor helper (screenshots, mouse, keys)
 │   ├── vnc.py             # minimal RFB client

@@ -1,0 +1,89 @@
+name: release
+
+# Cutting a release:
+#
+#   1. bump __version__ in h200d.py, commit
+#   2. git tag -a v0.1.2 -m "Release 0.1.2" && git push origin main --tags
+#
+# The tag must match __version__ or this refuses to publish. Everything in
+# ci.yml (tests on three Pythons, shellcheck, systemd/udev validation, the
+# tarball smoke test and a real install + uninstall on a live systemd) runs
+# first; the GitHub release is only created once all of that is green.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify-tag:
+    name: tag matches __version__
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          set -euo pipefail
+          version=$(python3 -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('h200d.py').read()).group(1))")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+              tag="${GITHUB_REF_NAME#v}"
+              [ "$tag" = "$version" ] || {
+                  echo "tag $GITHUB_REF_NAME does not match __version__ $version" >&2
+                  exit 1
+              }
+          fi
+          echo "releasing $version"
+
+  ci:
+    name: full ci
+    needs: [verify-tag]
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: publish the GitHub release
+    needs: [verify-tag, ci]
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: h200d-tarball
+          path: dist
+      - name: Checksums must match what CI built
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -l
+          sha256sum -c SHA256SUMS
+          test -f "h200d-${{ needs.verify-tag.outputs.version }}.tar.gz"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify-tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes=$(mktemp)
+          {
+            echo "## h200d $VERSION"
+            echo
+            echo "Native Linux daemon for the NOX Hummer H-200 LCD."
+            echo
+            echo '```'
+            echo "tar -xzf h200d-$VERSION.tar.gz"
+            echo "cd h200d-$VERSION"
+            echo "sudo ./install.sh"
+            echo '```'
+            echo
+            echo "Verify the download with \`sha256sum -c SHA256SUMS\`."
+          } > "$notes"
+          gh release create "$GITHUB_REF_NAME" \
+              --title "h200d $VERSION" \
+              --notes-file "$notes" \
+              "dist/h200d-$VERSION.tar.gz" \
+              "dist/SHA256SUMS"

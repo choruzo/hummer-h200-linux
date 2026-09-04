@@ -13,6 +13,13 @@ OUT="$SRC/dist"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
+# Nothing gets built out of a tree that fails its own tests. SKIP_TESTS=1 is
+# for debugging the packaging itself, not for cutting a release.
+if [ "${SKIP_TESTS:-0}" != "1" ] && [ -d "$SRC/tests" ]; then
+    echo "running the test suite"
+    ( cd "$SRC" && python3 -m unittest discover -s tests -q )
+fi
+
 mkdir -p "$STAGE/$NAME/packaging" "$STAGE/$NAME/docs"
 install -m755 "$SRC/h200d.py"                        "$STAGE/$NAME/"
 install -m755 "$SRC/install.sh"                      "$STAGE/$NAME/"
@@ -98,6 +105,10 @@ tar -xzf "$OUT/$NAME.tar.gz" -C "$CHECK"
   true
 )
 rm -rf "$CHECK"
+
+# Checksums, so a downloaded tarball can be verified: sha256sum -c SHA256SUMS
+( cd "$OUT" && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256" \
+    && cat ./*.tar.gz.sha256 > SHA256SUMS )
 
 echo "$OUT/$NAME.tar.gz"
 tar -tzf "$OUT/$NAME.tar.gz"

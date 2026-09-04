@@ -19,9 +19,14 @@ import struct
 import sys
 import time
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 VID, PID = 0x2E3C, 0x0A12
+
+# Where the sensors live. Constants rather than literals so the test suite can
+# point them at a fake tree; nothing else should ever change them.
+SYSFS = "/sys"
+PROC = "/proc"
 
 REPORT_HELLO = 0x10
 REPORT_DATA = 0x20
@@ -45,7 +50,7 @@ UNIT_FAHRENHEIT = 1
 
 def find_hidraw():
     """Return the /dev/hidrawN path of the H-200, or None."""
-    for node in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+    for node in sorted(glob.glob(SYSFS + "/class/hidraw/hidraw*")):
         uevent = os.path.join(node, "device", "uevent")
         try:
             with open(uevent) as f:
@@ -130,8 +135,22 @@ def read_int(path):
         return int(f.read().strip())
 
 
+def read_int_or_zero(path):
+    """read_int, but a sensor that went away reads as 0 instead of raising.
+
+    A GPU that unbinds or an hwmon node that gets renumbered must not look
+    like the display disappeared: run() treats OSError as "lost the LCD".
+    """
+    if not path:
+        return 0
+    try:
+        return read_int(path)
+    except (OSError, ValueError):
+        return 0
+
+
 def hwmon_chips():
-    for node in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+    for node in sorted(glob.glob(SYSFS + "/class/hwmon/hwmon*")):
         try:
             with open(os.path.join(node, "name")) as f:
                 yield node, f.read().strip()
@@ -168,7 +187,7 @@ def find_fan(chip_names):
 
 
 def find_gpu_busy():
-    for path in sorted(glob.glob("/sys/class/drm/card*/device/gpu_busy_percent")):
+    for path in sorted(glob.glob(SYSFS + "/class/drm/card*/device/gpu_busy_percent")):
         return path
     return None
 
@@ -181,7 +200,7 @@ class CpuUsage:
 
     @staticmethod
     def _sample():
-        with open("/proc/stat") as f:
+        with open(PROC + "/stat") as f:
             parts = [int(x) for x in f.readline().split()[1:]]
         idle = parts[3] + (parts[4] if len(parts) > 4 else 0)
         return sum(parts), idle
@@ -214,11 +233,11 @@ class Sensors:
 
     def read(self):
         return {
-            "cpu_temp": read_int(self.cpu_temp) / 1000.0 if self.cpu_temp else 0.0,
-            "gpu_temp": read_int(self.gpu_temp) / 1000.0 if self.gpu_temp else 0.0,
-            "fan_rpm": read_int(self.fan) if self.fan else 0,
+            "cpu_temp": read_int_or_zero(self.cpu_temp) / 1000.0,
+            "gpu_temp": read_int_or_zero(self.gpu_temp) / 1000.0,
+            "fan_rpm": read_int_or_zero(self.fan),
             "cpu_usage": self.cpu_usage.read(),
-            "gpu_usage": read_int(self.gpu_busy) if self.gpu_busy else 0,
+            "gpu_usage": read_int_or_zero(self.gpu_busy),
         }
 
     def describe(self):
