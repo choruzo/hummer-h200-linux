@@ -13,5 +13,6 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="2e3c", ATTRS{idProduct}=="0a12", \
 
 # Only needed to hand the raw USB device to QEMU for the Windows capture rig
 # (see research/METHOD.md). Harmless otherwise; drop it if you never capture.
+# uaccess matters here too: QEMU runs as the logged-in user, not as h200.
 SUBSYSTEM=="usb", ATTR{idVendor}=="2e3c", ATTR{idProduct}=="0a12", \
-    MODE="0660", GROUP="h200"
+    MODE="0660", GROUP="h200", TAG+="uaccess"
