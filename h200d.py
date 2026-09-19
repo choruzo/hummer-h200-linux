@@ -159,20 +159,28 @@ def hwmon_chips():
 
 
 def find_temp(chip_names, labels=None):
-    """First tempN_input of a chip in `chip_names` whose label matches."""
+    """tempN_input of a chip in `chip_names`, preferring earlier `labels`.
+
+    Without `labels`, the first tempN_input of the first matching chip.
+    """
+    found = []  # (node, input path, label)
     for node, name in hwmon_chips():
         if name not in chip_names:
             continue
         for inp in sorted(glob.glob(os.path.join(node, "temp*_input"))):
-            if labels:
-                label_path = inp.replace("_input", "_label")
-                try:
-                    with open(label_path) as f:
-                        if f.read().strip() not in labels:
-                            continue
-                except OSError:
-                    continue
-            return inp
+            label = None
+            try:
+                with open(inp.replace("_input", "_label")) as f:
+                    label = f.read().strip()
+            except OSError:
+                pass
+            found.append((inp, label))
+    if not labels:
+        return found[0][0] if found else None
+    for wanted in labels:
+        for inp, label in found:
+            if label == wanted:
+                return inp
     return None
 
 
@@ -220,7 +228,7 @@ class Sensors:
     CPU_CHIPS = ("k10temp", "coretemp", "zenpower")
     CPU_LABELS = ("Tctl", "Tdie", "Package id 0")
     GPU_CHIPS = ("amdgpu", "nouveau", "xe", "i915")
-    GPU_LABELS = ("edge", "junction", "pkg")
+    GPU_LABELS = ("junction", "edge", "pkg")
 
     def __init__(self):
         self.cpu_temp = find_temp(self.CPU_CHIPS, self.CPU_LABELS) \
