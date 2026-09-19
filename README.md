@@ -10,7 +10,7 @@ Native Linux daemon and tools to control the LCD display of the NOX Hummer H-200
 | **Display** | LCD screen (USB HID) |
 | **Protocol** | USB HID (discovered via reverse engineering) |
 | **OS Support** | Windows (official) |
-| **Linux Support** | In progress (this project) |
+| **Linux Support** | basic support for CPU, GPU, and RPM temperature |
 
 > **VID/PID**: `2E3C:0A12` (identified as "KIMTECH Tuner" by system)
 > **Device Node**: `/dev/hidraw2`
